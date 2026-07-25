@@ -152,11 +152,78 @@
             border: none;
             display: block;
             transition: opacity 0.4s ease;
+            position: absolute;
+            top: 0;
+            left: 0;
         }
 
         .player-wrapper.fade-out iframe,
         .player-wrapper.fade-out video {
             opacity: 0;
+        }
+
+        /* Static noise canvas */
+        #staticCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            pointer-events: none;
+        }
+
+        #staticCanvas.active {
+            opacity: 1;
+        }
+
+        .no-signal-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 2;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .no-signal-overlay.active {
+            opacity: 1;
+        }
+
+        .no-signal-text {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: rgba(255, 255, 255, 0.8);
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+            letter-spacing: 2px;
+            animation: flicker 3s infinite;
+        }
+
+        .no-signal-sub {
+            font-size: 0.8rem;
+            color: rgba(255, 255, 255, 0.5);
+            margin-top: 0.5rem;
+            letter-spacing: 1px;
+        }
+
+        @keyframes flicker {
+            0%, 100% { opacity: 1; }
+            5% { opacity: 0.8; }
+            10% { opacity: 1; }
+            15% { opacity: 0.6; }
+            20% { opacity: 1; }
+            50% { opacity: 0.9; }
+            55% { opacity: 0.7; }
+            60% { opacity: 1; }
         }
 
         .live-badge {
@@ -176,7 +243,7 @@
             letter-spacing: 0.5px;
             box-shadow: 0 0 15px rgba(229, 57, 53, 0.5), 0 0 30px rgba(229, 57, 53, 0.2);
             animation: liveGlow 2s ease-in-out infinite;
-            z-index: 2;
+            z-index: 3;
         }
 
         @keyframes liveGlow {
@@ -977,12 +1044,17 @@
     <main class="main">
         <div class="player-container" id="playerContainer">
             <div class="player-wrapper" id="playerWrapper">
+                <canvas id="staticCanvas"></canvas>
+                <div class="no-signal-overlay" id="noSignal">
+                    <div class="no-signal-text">НЕТ СИГНАЛА</div>
+                    <div class="no-signal-sub">NO SIGNAL</div>
+                </div>
                 <div class="live-badge">LIVE</div>
-                <video id="streamVideo" controls playsinline></video>
+                <video id="streamVideo" controls playsinline style="display:none;"></video>
                 <iframe id="streamFrame" src="" allowfullscreen allow="autoplay" style="display:none;"></iframe>
             </div>
             <div class="player-info">
-                <div class="player-title" id="programTitle">Прямой эфир НортТВ</div>
+                <div class="player-title" id="programTitle">НЕТ СИГНАЛА</div>
                 <div class="player-next" id="playerNext"></div>
             </div>
         </div>
@@ -1012,15 +1084,15 @@
             <h2>Добавить передачу</h2>
             
             <div class="add-method-tabs">
-                <button class="tab-btn active" onclick="switchTab('url')">URL</button>
-                <button class="tab-btn" onclick="switchTab('file')">Файл</button>
+                <button class="tab-btn active" onclick="switchTab('url', this)">URL</button>
+                <button class="tab-btn" onclick="switchTab('file', this)">Файл</button>
             </div>
 
             <!-- URL Tab -->
             <div class="tab-content active" id="tab-url">
                 <div class="form-group">
                     <label>Ссылка на видео</label>
-                    <input type="url" id="itemUrl" placeholder="https://youtube.com/embed/... или прямая ссылка на MP4">
+                    <input type="url" id="itemUrl" placeholder="https://youtube.com/watch?v=... или прямая ссылка">
                 </div>
             </div>
 
@@ -1107,7 +1179,7 @@
                 
                 <div class="form-group">
                     <label>Ссылка</label>
-                    <input type="url" id="streamUrl" placeholder="https://youtube.com/embed/...">
+                    <input type="url" id="streamUrl" placeholder="https://youtube.com/watch?v=...">
                 </div>
 
                 <div class="form-group">
@@ -1153,6 +1225,110 @@
         let draggedId = null;
         let currentAddMethod = 'url';
         let selectedFile = null;
+        let staticAnimationId = null;
+
+        // ==================== Static Noise ====================
+        const canvas = document.getElementById('staticCanvas');
+        const ctx = canvas.getContext('2d');
+        let staticIntensity = 0.5;
+
+        function resizeCanvas() {
+            const wrapper = document.getElementById('playerWrapper');
+            canvas.width = wrapper.offsetWidth;
+            canvas.height = wrapper.offsetHeight;
+        }
+
+        function drawStatic() {
+            const w = canvas.width;
+            const h = canvas.height;
+            const imageData = ctx.createImageData(w, h);
+            const data = imageData.data;
+            
+            for (let i = 0; i < data.length; i += 4) {
+                const noise = Math.random() * 255;
+                data[i] = noise;
+                data[i + 1] = noise;
+                data[i + 2] = noise;
+                data[i + 3] = 255 * staticIntensity;
+            }
+            
+            ctx.putImageData(imageData, 0, 0);
+            
+            // Horizontal scan lines
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+            for (let y = 0; y < h; y += 3) {
+                ctx.fillRect(0, y, w, 1);
+            }
+            
+            // Occasional glitch
+            if (Math.random() < 0.05) {
+                const glitchY = Math.random() * h;
+                const glitchH = Math.random() * 20 + 5;
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+                ctx.fillRect(0, glitchY, w, glitchH);
+            }
+            
+            staticAnimationId = requestAnimationFrame(drawStatic);
+        }
+
+        function startStatic() {
+            resizeCanvas();
+            canvas.classList.add('active');
+            document.getElementById('noSignal').classList.add('active');
+            if (!staticAnimationId) {
+                drawStatic();
+            }
+        }
+
+        function stopStatic() {
+            canvas.classList.remove('active');
+            document.getElementById('noSignal').classList.remove('active');
+            if (staticAnimationId) {
+                cancelAnimationFrame(staticAnimationId);
+                staticAnimationId = null;
+            }
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+
+        // ==================== YouTube URL Parser ====================
+        function parseYouTubeUrl(url) {
+            if (!url) return null;
+            
+            // Remove whitespace
+            url = url.trim();
+            
+            // Already embed format
+            if (url.includes('youtube.com/embed/')) {
+                return url;
+            }
+            
+            // Regular YouTube URL
+            let videoId = null;
+            
+            // youtube.com/watch?v=ID
+            const watchMatch = url.match(/youtube\.com\/watch\?v=([a-zA-Z0-9_-]+)/);
+            if (watchMatch) videoId = watchMatch[1];
+            
+            // youtu.be/ID
+            const shortMatch = url.match(/youtu\.be\/([a-zA-Z0-9_-]+)/);
+            if (shortMatch) videoId = shortMatch[1];
+            
+            // youtube.com/shorts/ID
+            const shortsMatch = url.match(/youtube\.com\/shorts\/([a-zA-Z0-9_-]+)/);
+            if (shortsMatch) videoId = shortsMatch[1];
+            
+            // Just video ID
+            if (!videoId && /^[a-zA-Z0-9_-]{11}$/.test(url)) {
+                videoId = url;
+            }
+            
+            if (videoId) {
+                return `https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0`;
+            }
+            
+            return null;
+        }
 
         // ==================== GitHub API ====================
         function getGithubSettings() {
@@ -1171,7 +1347,7 @@
                 throw new Error('Настройте GitHub токен и репозиторий');
             }
 
-            const path = `${settings.folder}/${Date.now()}_${name}`;
+            const path = `${settings.folder}/${Date.now()}_${name.replace(/[^a-zA-Z0-9]/g, '_')}.mp4`;
             const content = await fileToBase64(file);
             
             const response = await fetch(`https://api.github.com/repos/${settings.repo}/contents/${path}`, {
@@ -1230,6 +1406,9 @@
             loadStreamSettings();
             loadGithubSettings();
             setupEventListeners();
+            
+            // Show static on start
+            startStatic();
         }
 
         function loadStreamSettings() {
@@ -1240,17 +1419,17 @@
             const video = document.getElementById('streamVideo');
             
             if (saved) {
-                frame.src = saved;
+                const youtubeUrl = parseYouTubeUrl(saved);
+                const finalUrl = youtubeUrl || saved;
+                frame.src = finalUrl;
                 frame.style.display = 'block';
                 video.style.display = 'none';
-            } else {
-                frame.src = 'https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1&mute=1';
-                frame.style.display = 'block';
-                video.style.display = 'none';
+                stopStatic();
+                document.getElementById('programTitle').textContent = savedTitle || 'Прямой эфир';
+                document.getElementById('playerContainer').classList.add('playing');
             }
             
             if (savedTitle) {
-                document.getElementById('programTitle').textContent = savedTitle;
                 document.getElementById('programName').value = savedTitle;
             }
         }
@@ -1326,6 +1505,7 @@
             const video = document.getElementById('streamVideo');
             video.addEventListener('error', function() {
                 notify('Ошибка воспроизведения', true);
+                startStatic();
             });
             video.addEventListener('ended', function() {
                 if (isQueuePlaying) {
@@ -1352,7 +1532,7 @@
                 now.getHours().toString().padStart(2, '0') + ':' + 
                 now.getMinutes().toString().padStart(2, '0');
             
-            switchTab('url');
+            switchTab('url', document.querySelector('.tab-btn'));
             setTimeout(() => document.getElementById('itemName').focus(), 100);
         }
 
@@ -1361,12 +1541,12 @@
             selectedFile = null;
         }
 
-        function switchTab(tab) {
+        function switchTab(tab, btn) {
             currentAddMethod = tab;
-            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
             
-            event.target.classList.add('active');
+            btn.classList.add('active');
             document.getElementById('tab-' + tab).classList.add('active');
         }
 
@@ -1383,12 +1563,16 @@
             let type = '';
 
             if (currentAddMethod === 'url') {
-                url = document.getElementById('itemUrl').value.trim();
-                if (!url) {
+                const rawUrl = document.getElementById('itemUrl').value.trim();
+                if (!rawUrl) {
                     notify('Введите URL', true);
                     return;
                 }
-                type = 'url';
+                
+                // Try to parse as YouTube
+                const youtubeUrl = parseYouTubeUrl(rawUrl);
+                url = youtubeUrl || rawUrl;
+                type = youtubeUrl ? 'youtube' : 'url';
             } else {
                 if (!selectedFile) {
                     notify('Выберите файл', true);
@@ -1510,6 +1694,8 @@
             currentIndex = -1;
             document.getElementById('playerNext').innerHTML = '';
             document.getElementById('playerContainer').classList.remove('playing');
+            document.getElementById('programTitle').textContent = 'НЕТ СИГНАЛА';
+            startStatic();
             renderQueue();
             updateScheduleBar();
         }
@@ -1525,13 +1711,21 @@
             const frame = document.getElementById('streamFrame');
             const wrapper = document.getElementById('playerWrapper');
             
+            stopStatic();
             wrapper.classList.add('fade-out');
             
             setTimeout(() => {
-                frame.style.display = 'none';
-                frame.src = '';
-                video.style.display = 'block';
-                video.src = item.url;
+                // Check if it's a YouTube URL
+                if (item.type === 'youtube' || item.url.includes('youtube.com/embed/')) {
+                    frame.style.display = 'block';
+                    video.style.display = 'none';
+                    frame.src = item.url;
+                } else {
+                    frame.style.display = 'none';
+                    frame.src = '';
+                    video.style.display = 'block';
+                    video.src = item.url;
+                }
                 
                 document.getElementById('programTitle').textContent = item.name;
                 document.getElementById('playerContainer').classList.add('playing');
@@ -1539,9 +1733,11 @@
                 renderQueue();
                 updateScheduleBar();
 
-                video.play().catch(function() {
-                    notify('Нажмите Play', true);
-                });
+                if (video.style.display !== 'none') {
+                    video.play().catch(function() {
+                        notify('Нажмите Play', true);
+                    });
+                }
                 
                 setTimeout(() => wrapper.classList.remove('fade-out'), 50);
             }, 400);
@@ -1610,7 +1806,7 @@
 
             list.innerHTML = queue.map(function(item, index) {
                 const isActive = index === currentIndex && isQueuePlaying;
-                const typeLabel = item.type === 'github' ? 'GitHub' : item.type === 'url' ? 'URL' : '';
+                const typeLabel = item.type === 'github' ? 'GitHub' : item.type === 'youtube' ? 'YouTube' : item.type === 'url' ? 'URL' : '';
                 
                 return '<div class="queue-item' + (isActive ? ' active' : '') + '" ' +
                     'draggable="true" ' +
@@ -1701,23 +1897,36 @@
                 return;
             }
 
-            localStorage.setItem('norttv_stream', url);
+            // Parse YouTube URL
+            const youtubeUrl = parseYouTubeUrl(url);
+            const finalUrl = youtubeUrl || url;
+            
+            localStorage.setItem('norttv_stream', finalUrl);
             
             const frame = document.getElementById('streamFrame');
             const video = document.getElementById('streamVideo');
             const wrapper = document.getElementById('playerWrapper');
             
+            stopStatic();
             wrapper.classList.add('fade-out');
             
             setTimeout(() => {
-                video.style.display = 'none';
-                video.src = '';
-                frame.style.display = 'block';
-                frame.src = url;
+                if (youtubeUrl) {
+                    video.style.display = 'none';
+                    frame.style.display = 'block';
+                    frame.src = finalUrl;
+                } else {
+                    frame.style.display = 'none';
+                    frame.src = '';
+                    video.style.display = 'block';
+                    video.src = finalUrl;
+                }
                 
                 if (title) {
                     localStorage.setItem('norttv_title', title);
                     document.getElementById('programTitle').textContent = title;
+                } else {
+                    document.getElementById('programTitle').textContent = 'Прямой эфир';
                 }
                 
                 stopQueue();
@@ -1734,18 +1943,33 @@
                 notify('Введите URL', true);
                 return;
             }
+            
+            const youtubeUrl = parseYouTubeUrl(url);
+            const finalUrl = youtubeUrl || url;
+            
             const frame = document.getElementById('streamFrame');
-            frame.src = url;
-            frame.style.display = 'block';
-            document.getElementById('streamVideo').style.display = 'none';
+            const video = document.getElementById('streamVideo');
+            
+            stopStatic();
+            
+            if (youtubeUrl) {
+                frame.src = finalUrl;
+                frame.style.display = 'block';
+                video.style.display = 'none';
+            } else {
+                video.src = finalUrl;
+                video.style.display = 'block';
+                frame.style.display = 'none';
+            }
+            
             notify('Тестирование...');
         }
 
         function setPreset(type) {
             const inputs = {
-                youtube: 'https://www.youtube.com/embed/',
-                vimeo: 'https://player.vimeo.com/video/',
-                twitch: 'https://player.twitch.tv/?channel=',
+                youtube: 'https://www.youtube.com/watch?v=',
+                vimeo: 'https://vimeo.com/',
+                twitch: 'https://www.twitch.tv/',
                 direct: 'https://example.com/video.mp4'
             };
             document.getElementById('streamUrl').value = inputs[type];
